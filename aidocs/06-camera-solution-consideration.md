@@ -183,7 +183,7 @@ Created a Python script that:
 - 3280×2464 resolution at ~15fps potential
 - Raw Bayer to RGB conversion (basic)
 
-### Phase 3: v4l2loopback Service (Next Step)
+### Phase 3: v4l2loopback Service ✓ (Completed)
 
 **Goal:** Create a background service that:
 1. Loads `v4l2loopback` kernel module
@@ -191,29 +191,46 @@ Created a Python script that:
 3. Runs capture loop, feeding frames to virtual device
 4. Activates on-demand when applications open the camera
 
+**Implementation:** Created `krane_cam` - a pure Rust implementation:
+- Location: `camera/krane_cam/`
+- See: `camera/krane_cam/AI_README.md` for full documentation
+
 **Architecture:**
 ```
 ┌─────────────────────────────────────────────────────┐
 │                    User Application                  │
 │              (Firefox, Cheese, Zoom, etc.)          │
 │                         ↓                            │
-│              /dev/video10 (v4l2loopback)            │
+│              /dev/video12 (v4l2loopback)            │
 │                         ↑                            │
-│              camera-service (Python daemon)          │
+│                     krane_cam                        │
+│     ┌───────────────────┼───────────────────┐       │
+│     │ BayerFrame ──────→ YuyvFrame          │       │
+│     │   (GRBG 8-bit)      (demosaic)        │       │
+│     └───────────────────┴───────────────────┘       │
 │                         ↓                            │
-│              capture.py core logic                   │
+│           Media Request API (capture.rs)            │
 │                         ↓                            │
-│              /dev/media0 + /dev/video3              │
-│                  (Media Request API)                 │
+│     /dev/video1 (ISP)  +  /dev/media0 (requests)    │
 └─────────────────────────────────────────────────────┘
 ```
 
-**Implementation tasks:**
-1. Install v4l2loopback-dkms
-2. Create systemd service unit
-3. Implement frame loop with proper timing
-4. Handle device open/close events
-5. Convert Bayer → YUV420/RGB for loopback
+**Performance achieved:**
+- ~5 FPS at 1640×1232 (half sensor resolution)
+- 270+ frames captured successfully in testing
+- Continuous streaming optimization (keeps stream active)
+
+**Usage:**
+```bash
+# Load v4l2loopback
+sudo modprobe v4l2loopback video_nr=12 card_label="MT8183 Camera" exclusive_caps=1
+
+# Run krane_cam
+cd camera/krane_cam && cargo run --release -- -d /dev/video12 --camera
+
+# View in another terminal
+ffplay /dev/video12
+```
 
 ### Phase 4: Front Camera Support (Future)
 
@@ -273,9 +290,9 @@ We've deliberately taken a careful, step-by-step approach:
 |------|--------|-------------|
 | 1 | ✓ | Understand hardware (sensors, ISP, media topology) |
 | 2 | ✓ | Get kernel modules loading |
-| 3 | ✓ | Create working capture script |
-| 4 | → | v4l2loopback virtual camera (rear only) |
-| 5 | ○ | Front camera investigation |
+| 3 | ✓ | Create working capture script (capture.py) |
+| 4 | ✓ | v4l2loopback virtual camera via krane_cam (~5 FPS) |
+| 5 | → | Front camera investigation |
 | 6 | ○ | Dual camera support |
 | 7 | ○ | Basic 3A (AE, AWB) |
 | 8 | ○ | Autofocus support |
