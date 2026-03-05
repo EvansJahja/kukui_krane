@@ -1,0 +1,10 @@
+[package]
+name = "krane_cam"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+v4l = { version = "0.14", features = ["v4l2"] }
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+libc = "0.2"
