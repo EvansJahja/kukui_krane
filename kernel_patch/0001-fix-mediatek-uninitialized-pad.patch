@@ -1,0 +1,108 @@
+From c47478052e6295761a71fa9ddfbf85b04dfb912c Mon Sep 17 00:00:00 2001
+From: Evans <evansjahja13@gmail.com>
+Date: Thu, 5 Mar 2026 18:58:16 +0900
+Subject: [PATCH] fix mediatek uninitialized pad
+
+---
+ drivers/media/i2c/ov8856.c                    |  2 +-
+ .../mediatek/isp/isp_50/cam/mtk_cam.c         | 24 ++++++++++++-------
+ 2 files changed, 16 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/media/i2c/ov8856.c b/drivers/media/i2c/ov8856.c
+index 23d524de7d60..462cdaa45bdf 100644
+--- a/drivers/media/i2c/ov8856.c
++++ b/drivers/media/i2c/ov8856.c
+@@ -2282,7 +2282,7 @@ static int ov8856_get_hwcfg(struct ov8856 *ov8856, struct device *dev)
+ 		}
+ 
+ 		clk_set_rate(ov8856->xvclk, xvclk_rate);
+-		xvclk_rate = clk_get_rate(ov8856->xvclk);
++		// xvclk_rate = clk_get_rate(ov8856->xvclk);
+ 
+ 		ov8856->reset_gpio = devm_gpiod_get_optional(dev, "reset",
+ 							     GPIOD_OUT_LOW);
+diff --git a/drivers/media/platform/mediatek/isp/isp_50/cam/mtk_cam.c b/drivers/media/platform/mediatek/isp/isp_50/cam/mtk_cam.c
+index 8ac4ba35e7e3..2232602789c3 100644
+--- a/drivers/media/platform/mediatek/isp/isp_50/cam/mtk_cam.c
++++ b/drivers/media/platform/mediatek/isp/isp_50/cam/mtk_cam.c
+@@ -600,13 +600,14 @@ static int mtk_cam_dev_isp_config(struct mtk_cam_dev *cam)
+ 	struct device *dev = cam->dev;
+ 	struct p1_config_param config_param;
+ 	struct cfg_in_param *cfg_in_param;
+-	struct v4l2_subdev_format sd_fmt;
++	struct v4l2_subdev_format sd_fmt = { };
+ 	int sd_width, sd_height, sd_code;
+ 	unsigned int enabled_dma_ports = cam->enabled_dmas;
+ 	int ret;
+ 
+ 	/* Get sensor format configuration */
+ 	sd_fmt.which = V4L2_SUBDEV_FORMAT_ACTIVE;
++	sd_fmt.pad = 0;  /* Sensor always has pad 0 as source */
+ 	ret = v4l2_subdev_call(cam->sensor, pad, get_fmt, NULL, &sd_fmt);
+ 	if (ret) {
+ 		dev_dbg(dev, "sensor g_fmt failed:%d\n", ret);
+@@ -717,14 +718,18 @@ static int mtk_cam_cio_stream_on(struct mtk_cam_dev *cam)
+ 		return -ENODEV;
+ 
+ 	/* Seninf must stream on first */
++	dev_info(dev, "calling seninf s_stream on %s\n", cam->seninf->entity.name);
+ 	ret = v4l2_subdev_call(cam->seninf, video, s_stream, 1);
++	dev_info(dev, "seninf s_stream returned %d\n", ret);
+ 	if (ret) {
+ 		dev_err(dev, "failed to stream on %s:%d\n",
+ 			cam->seninf->entity.name, ret);
+ 		return ret;
+ 	}
+ 
++	dev_info(dev, "calling sensor s_stream on %s\n", cam->sensor->entity.name);
+ 	ret = v4l2_subdev_call(cam->sensor, video, s_stream, 1);
++	dev_info(dev, "sensor s_stream returned %d\n", ret);
+ 	if (ret) {
+ 		dev_err(dev, "failed to stream on %s:%d\n",
+ 			cam->sensor->entity.name, ret);
+@@ -1334,13 +1339,6 @@ static int mtk_cam_media_register(struct mtk_cam_dev *cam,
+ 		goto fail_media_unreg;
+ 	}
+ 
+-	ret = media_entity_pads_init(&cam->subdev.entity, num_pads,
+-				     cam->subdev_pads);
+-	if (ret) {
+-		dev_err(dev, "failed to initialize media pads:%d\n", ret);
+-		goto fail_media_unreg;
+-	}
+-
+ 	/* Initialize all pads with MEDIA_PAD_FL_SOURCE */
+ 	for (i = 0; i < num_pads; i++)
+ 		cam->subdev_pads[i].flags = MEDIA_PAD_FL_SOURCE;
+@@ -1348,6 +1346,14 @@ static int mtk_cam_media_register(struct mtk_cam_dev *cam,
+ 	/* Customize the last one pad as CIO sink pad. */
+ 	cam->subdev_pads[MTK_CAM_CIO_PAD_SINK].flags = MEDIA_PAD_FL_SINK;
+ 
++	ret = media_entity_pads_init(&cam->subdev.entity, num_pads,
++				     cam->subdev_pads);
++	if (ret) {
++		dev_err(dev, "failed to initialize media pads %s numpads: %d :%d\n", media_dev->model, num_pads, ret);
++		goto fail_media_unreg;
++	}
++
++
+ 	return 0;
+ 
+ fail_media_unreg:
+@@ -1379,12 +1385,12 @@ mtk_cam_video_register_device(struct mtk_cam_dev *cam,
+ 		MEDIA_PAD_FL_SINK : MEDIA_PAD_FL_SOURCE;
+ 
+ 	/* Initialize media entities */
++	node->vdev_pad.flags = output ? MEDIA_PAD_FL_SOURCE : MEDIA_PAD_FL_SINK;
+ 	ret = media_entity_pads_init(&vdev->entity, 1, &node->vdev_pad);
+ 	if (ret) {
+ 		dev_err(dev, "failed to initialize media pad:%d\n", ret);
+ 		return ret;
+ 	}
+-	node->vdev_pad.flags = output ? MEDIA_PAD_FL_SOURCE : MEDIA_PAD_FL_SINK;
+ 
+ 	/* Initialize vbq */
+ 	vbq->type = node->desc.buf_type;
+-- 
+2.53.0
+

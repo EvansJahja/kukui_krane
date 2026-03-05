@@ -1,0 +1,3 @@
+# Ignore compiled test binaries
+glfwtest/test_*
+!glfwtest/test_*.c
